@@ -22,7 +22,10 @@ use UnitTester;
 class VariablesTest extends BaseUnitTest
 {
     public const V2_OUTPUT_PATTERN = '/<div id="([\w-]+?)"><\/div>\s+<script type="text\/javascript"((\s+\w+?(=".+?")?)*)?>\s+var (\w+?) = function\(\) {\s+var widgetId = grecaptcha.render\("([\w-]+?)", {\s+(.*?)\s+}\);\s+(.*?)?};\s+(.*?\s+)?<\/script>\s+<script src="https:\/\/www.google.com\/recaptcha\/api\.js\?onload=(\w+?)&render=explicit&hl=([\w-]+?)" async defer((\s+\w+?(=".+?")?)*)?><\/script>/s';
-    public const V3_OUTPUT_PATTERN = '/<script src="https:\/\/www.google.com\/recaptcha\/api\.js\?render=([\w-]+?)"((\s+\w+?(=".+?")?)*)?><\/script>\s+<script((\s+\w+?(=".+?")?)*)?>\s+grecaptcha.ready\(function\(\) {\s+grecaptcha\.execute\("([\w-]+?)", {\s+action\: "(\w+?)"\s+}\)\.then\(function\(token\) {\s+document\.getElementById\("([\w-]+?)"\)\.value = token;\s+}\);\s+}\);\s+<\/script>/s';
+    public const V3_OUTPUT_PATTERN_SIMPLE = '/<script src="https:\/\/www.google.com\/recaptcha\/api\.js\?render=([\w-]+?)"((\s+\w+?(=".+?")?)*)?><\/script>\s+<script((\s+\w+?(=".+?")?)*)?>\s+grecaptcha.ready\(function\(\) {\s+grecaptcha\.execute\("([\w-]+?)", {\s+action\: "(\w+?)"\s+}\)\.then\(function\(token\) {\s+document\.getElementById\("([\w-]+?)"\)\.value = token;\s+}\);\s+}\);\s+<\/script>/s';
+    // The formId variant is asserted on behaviour rather than exact shape, so
+    // that reformatting the script does not break the test.
+    public const V3_OUTPUT_PATTERN_WITH_FORMID = '/<script src="https:\/\/www.google.com\/recaptcha\/api\.js\?render=([\w-]+?)"((\s+\w+?(=".+?")?)*)?><\/script>\s+<script((\s+\w+?(=".+?")?)*)?>(.*?)<\/script>/s';
     /**
      * @var UnitTester
      */
@@ -163,7 +166,7 @@ class VariablesTest extends BaseUnitTest
             'secretKey' => 'some-secret-key',
         ]);
         $output = $this->variable->render();
-        $isValid = (bool)preg_match(self::V3_OUTPUT_PATTERN, $output, $matches);
+        $isValid = (bool)preg_match(self::V3_OUTPUT_PATTERN_SIMPLE, $output, $matches);
         $this->assertTrue($isValid);
         $this->assertEquals($matches[1], $matches[8]);
         $this->assertStringContainsString('some-site-key', $matches[1]);
@@ -183,7 +186,7 @@ class VariablesTest extends BaseUnitTest
             'secretKey' => 'some-secret-key',
         ]);
         $output = $this->variable->render(['id' => 'my-recaptcha']);
-        $isValid = (bool)preg_match(self::V3_OUTPUT_PATTERN, $output, $matches);
+        $isValid = (bool)preg_match(self::V3_OUTPUT_PATTERN_SIMPLE, $output, $matches);
         $this->assertTrue($isValid);
         $this->assertStringContainsString('homepage', $matches[9]);
         $this->assertStringContainsString('my-recaptcha', $matches[10]);
@@ -197,7 +200,7 @@ class VariablesTest extends BaseUnitTest
             'secretKey' => 'some-secret-key',
         ]);
         $output = $this->variable->render(['scriptOptions' => ['nonce' => '123456Z']]);
-        $isValid = (bool)preg_match(self::V3_OUTPUT_PATTERN, $output, $matches);
+        $isValid = (bool)preg_match(self::V3_OUTPUT_PATTERN_SIMPLE, $output, $matches);
         $this->assertTrue($isValid);
         $this->assertEquals($matches[1], $matches[8]);
         $this->assertStringContainsString('some-site-key', $matches[1]);
@@ -207,5 +210,55 @@ class VariablesTest extends BaseUnitTest
         $this->assertStringContainsString('nonce="123456Z"', $matches[6]);
         $this->assertStringContainsString('some-site-key', $matches[8]);
         $this->assertStringContainsString('homepage', $matches[9]);
+    }
+
+    public function testRenderV3WithFormIdOptions(): void
+    {
+        GoogleRecaptcha::$plugin->setSettings([
+            'version' => 3,
+            'siteKey' => 'some-site-key',
+            'secretKey' => 'some-secret-key',
+        ]);
+        $output = $this->variable->render(['formId' => 'some-form-id', 'scriptOptions' => ['nonce' => '123456Z']]);
+        $isValid = (bool)preg_match(self::V3_OUTPUT_PATTERN_WITH_FORMID, $output, $matches);
+        $this->assertTrue($isValid);
+
+        $script = $matches[8];
+        $this->assertStringContainsString('"some-form-id"', $script);
+        $this->assertStringContainsString('"some-site-key"', $script);
+
+        // The token must be minted on submit, not on page load, or it expires
+        // two minutes later and the submission is rejected.
+        $this->assertMatchesRegularExpression('/addEventListener\(\'submit\'.*grecaptcha\.execute\(/s', $script);
+
+        // The listener has to be delegated from the document. Bound to the form
+        // node directly it is silently lost whenever something re-renders the
+        // page, and the token field is then submitted empty.
+        $this->assertStringContainsString('document.addEventListener(\'submit\'', $script);
+        $this->assertStringNotContainsString('form.addEventListener', $script);
+
+        // The form must still be submitted when reCAPTCHA fails, otherwise the
+        // submit button is left permanently dead.
+        $this->assertStringContainsString('form.submit()', $script);
+
+        // The nonce has to reach both script tags, or a strict CSP blocks this one.
+        $this->assertStringContainsString('nonce="123456Z"', $matches[2]);
+        $this->assertEquals($matches[2], $matches[5]);
+    }
+
+    public function testGetVersion(): void
+    {
+        GoogleRecaptcha::$plugin->setSettings([
+            'version' => 3,
+        ]);
+        $this->assertEquals(3, $this->variable->getVersion());
+    }
+
+    public function testGetSiteKey(): void
+    {
+        GoogleRecaptcha::$plugin->setSettings([
+            'siteKey' => 'some-site-key',
+        ]);
+        $this->assertEquals('some-site-key', $this->variable->getSiteKey());
     }
 }
