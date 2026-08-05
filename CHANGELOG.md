@@ -14,6 +14,10 @@ Merges upstream `juban/craft-google-recaptcha` up to 97e3fc3, which brings the v
 
 ### Fixed
 
+- The submit listener is delegated from the `document` rather than bound to the form node, and the form and token
+  field are looked up when they are needed rather than held onto. Anything that re-renders the page after parse —
+  Vue's runtime compiler, htmx, Turbo — replaces the form node, which silently discarded the listener and left the
+  token field to be submitted empty.
 - The `formId` script tag now receives `scriptOptions` attributes, so a CSP `nonce` is applied to it. Upstream's
   version omitted them, which meant the script was blocked under a strict CSP.
 - The form is now submitted even when `grecaptcha.execute()` rejects or hangs (10s cap). Upstream's version left the
