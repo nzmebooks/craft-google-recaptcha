@@ -34,7 +34,7 @@ modules:
         google-recaptcha:
           class: '\juban\googlerecaptcha\GoogleRecaptcha'
           handle: google-recaptcha
-      cleanup: false
+      cleanup: true
       transaction: true
       dbSetup: {clean: true, setupCraft: true}
       fullMock: false
