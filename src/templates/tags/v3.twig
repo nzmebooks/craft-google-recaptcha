@@ -3,12 +3,8 @@
 {%~ if formId %}
     <script {{- scriptAttributes|raw }}>
         (function() {
-            var form = document.getElementById({{ formId|json_encode|raw }});
-            var field = document.getElementById({{ id|json_encode|raw }});
-
-            if (!form || !field) {
-                return;
-            }
+            var formId = {{ formId|json_encode|raw }};
+            var fieldId = {{ id|json_encode|raw }};
 
             // v3 tokens expire two minutes after they are minted, so we mint one
             // when the form is submitted rather than when the page loads. Without
@@ -16,12 +12,27 @@
             // is rejected with "timeout-or-duplicate".
             var pending = false;
 
-            // form.submit() does not fire this event, so it cannot recurse.
-            var send = function() {
-                form.submit();
+            // Every node is looked up when it is needed rather than held onto,
+            // and the listener is delegated from the document. Anything that
+            // re-renders the page — Vue's runtime compiler, htmx, Turbo — replaces
+            // the form node, which silently discards a listener bound directly to
+            // it and leaves the token field empty.
+            var submitAnyway = function() {
+                pending = false;
+
+                var form = document.getElementById(formId);
+
+                if (form) {
+                    // form.submit() does not fire this event, so it cannot recurse.
+                    form.submit();
+                }
             };
 
-            form.addEventListener('submit', function(event) {
+            document.addEventListener('submit', function(event) {
+                if (!event.target || event.target.id !== formId) {
+                    return;
+                }
+
                 // Native constraint validation has already passed by this point,
                 // so required fields still behave as they would without us.
                 event.preventDefault();
@@ -36,7 +47,7 @@
                 // far better outcome than a Send button that silently does
                 // nothing. Verification stays server-side either way.
                 if (typeof grecaptcha === 'undefined' || !grecaptcha.ready) {
-                    send();
+                    submitAnyway();
                     return;
                 }
 
@@ -48,7 +59,11 @@
                     var token = grecaptcha.execute({{ siteKey|json_encode|raw }}, {
                         action: {{ action|json_encode|raw }}
                     }).then(function(value) {
-                        field.value = value;
+                        var field = document.getElementById(fieldId);
+
+                        if (field) {
+                            field.value = value;
+                        }
                     });
 
                     // Don't strand the user if reCAPTCHA hangs or rejects.
@@ -56,9 +71,9 @@
                         window.setTimeout(resolve, 10000);
                     });
 
-                    Promise.race([token, timeout]).catch(function() {}).then(send);
+                    Promise.race([token, timeout]).catch(function() {}).then(submitAnyway);
                 });
-            }, false);
+            }, true);
         })();
     </script>
 {% else %}

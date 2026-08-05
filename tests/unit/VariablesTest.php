@@ -229,8 +229,13 @@ class VariablesTest extends BaseUnitTest
 
         // The token must be minted on submit, not on page load, or it expires
         // two minutes later and the submission is rejected.
-        $this->assertStringContainsString('addEventListener(\'submit\'', $script);
         $this->assertMatchesRegularExpression('/addEventListener\(\'submit\'.*grecaptcha\.execute\(/s', $script);
+
+        // The listener has to be delegated from the document. Bound to the form
+        // node directly it is silently lost whenever something re-renders the
+        // page, and the token field is then submitted empty.
+        $this->assertStringContainsString('document.addEventListener(\'submit\'', $script);
+        $this->assertStringNotContainsString('form.addEventListener', $script);
 
         // The form must still be submitted when reCAPTCHA fails, otherwise the
         // submit button is left permanently dead.
