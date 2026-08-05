@@ -1,19 +1,65 @@
 {{ hiddenInput|raw }}
 <script src="https://www.google.com/recaptcha/api.js?render={{ siteKey }}" {{- scriptAttributes|raw }}></script>
 {%~ if formId %}
-    <script>
-        grecaptcha.ready(function() {
-            document.getElementById("{{ formId }}").addEventListener("submit", function(event) {
+    <script {{- scriptAttributes|raw }}>
+        (function() {
+            var form = document.getElementById({{ formId|json_encode|raw }});
+            var field = document.getElementById({{ id|json_encode|raw }});
+
+            if (!form || !field) {
+                return;
+            }
+
+            // v3 tokens expire two minutes after they are minted, so we mint one
+            // when the form is submitted rather than when the page loads. Without
+            // this, anyone who takes longer than two minutes to fill the form in
+            // is rejected with "timeout-or-duplicate".
+            var pending = false;
+
+            // form.submit() does not fire this event, so it cannot recurse.
+            var send = function() {
+                form.submit();
+            };
+
+            form.addEventListener('submit', function(event) {
+                // Native constraint validation has already passed by this point,
+                // so required fields still behave as they would without us.
                 event.preventDefault();
-                grecaptcha.execute("{{ siteKey }}", {
-                    action: "{{ action }}"
-                }).then(function(token) {
-                    document.getElementById("{{ id }}").value = token;
-                    document.getElementById("{{ formId }}").submit();
+
+                // Swallow extra clicks while a token is in flight.
+                if (pending) {
+                    return;
+                }
+
+                // Only reachable if api.js was blocked or failed to load. Submit
+                // regardless: the server still rejects the submission, which is a
+                // far better outcome than a Send button that silently does
+                // nothing. Verification stays server-side either way.
+                if (typeof grecaptcha === 'undefined' || !grecaptcha.ready) {
+                    send();
+                    return;
+                }
+
+                pending = true;
+
+                // ready() queues the callback until the API has initialised, so a
+                // click made before then still gets a token.
+                grecaptcha.ready(function() {
+                    var token = grecaptcha.execute({{ siteKey|json_encode|raw }}, {
+                        action: {{ action|json_encode|raw }}
+                    }).then(function(value) {
+                        field.value = value;
+                    });
+
+                    // Don't strand the user if reCAPTCHA hangs or rejects.
+                    var timeout = new Promise(function(resolve) {
+                        window.setTimeout(resolve, 10000);
+                    });
+
+                    Promise.race([token, timeout]).catch(function() {}).then(send);
                 });
             }, false);
-
-        });
+        })();
     </script>
 {% else %}
     <script {{- scriptAttributes|raw }}>

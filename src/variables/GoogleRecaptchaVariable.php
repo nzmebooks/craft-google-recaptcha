@@ -111,7 +111,7 @@ class GoogleRecaptchaVariable
         array $options,
         string $scriptAttributes,
         string $action,
-        string $formId = null,
+        ?string $formId = null,
     ): string {
         return Craft::$app->getView()->renderTemplate('google-recaptcha/tags/v3', [
             'id' => $id,

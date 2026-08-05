@@ -1,5 +1,30 @@
 # Google Recaptcha Changelog
 
+## 3.1.0 - 2026-08-05
+
+Merges upstream `juban/craft-google-recaptcha` up to 97e3fc3, which brings the v3 `formId` option and the
+`getVersion`/`getSiteKey` Twig variables into this fork, then hardens the `formId` implementation.
+
+### Added
+
+- v3 `formId` option (from upstream), which mints the token on the form's `submit` event instead of on page load.
+  Without it, a v3 token expires two minutes after the page loads and anyone slower than that is rejected with
+  `timeout-or-duplicate`.
+- New `getVersion` and `getSiteKey` Twig variables (from upstream).
+
+### Fixed
+
+- The `formId` script tag now receives `scriptOptions` attributes, so a CSP `nonce` is applied to it. Upstream's
+  version omitted them, which meant the script was blocked under a strict CSP.
+- The form is now submitted even when `grecaptcha.execute()` rejects or hangs (10s cap). Upstream's version left the
+  promise unhandled, so a failed or slow reCAPTCHA call left the submit button permanently dead. Verification remains
+  server-side, so this weakens nothing.
+- A submit made before the reCAPTCHA API has initialised now waits for a token rather than posting an empty field.
+- Repeated clicks while a token is in flight are ignored rather than firing several `execute()` calls.
+- Interpolated values in the v3 `formId` script are JSON-encoded rather than pasted into bare JS string literals.
+
+> {note} This fork's `3.0.0`–`3.0.6` tags are unrelated to upstream's `3.0.0`. The entry below is upstream's.
+
 ## 3.0.0 - 2024-11-06
 
 ### Added
